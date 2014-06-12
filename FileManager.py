@@ -1,10 +1,12 @@
 # Malay Keshav, Rahul Upadhyaya and Khushal Sagar
 
+import os
 import logging as Logger
 import math
 from bitstring import BitArray
 import logging as Logger
 from Constants import *
+import hashlib
 
 
 class FileManager(object):
@@ -14,24 +16,72 @@ class FileManager(object):
 	"""
 
 	def __init__(self, info):
-		Logger.debug("Initializing File Manager")
-		self.initPiecesBlocks(info)
-		self.files_list = list()
-		self.setMarkersForFileToDownload(info)
-		self.initFile()
-		Logger.debug("Initializing File Manager Complete")
 		self.StreamCompleted = False
 		self.downloaded 	= 0
 		self.uploaded		= 0
 		self.bytesWritten 	= 0
+		Logger.debug("Initializing File Manager")
+		self.initPiecesBlocks(info)
+		self.files_list = list()
+		self.setMarkersForFileToDownload(info)
+		self.initHashes(info)
+		self.initFile()
+		Logger.debug("Initializing File Manager Complete")
+
+
+	def initHashes(self, info):
+		self.piece_hash = list()
+		for i in xrange(self.no_of_pieces):
+			hh = info['pieces'][i*20:(i*20)+20]
+			self.piece_hash.append(hh)
+
+	# Function Reads the File Piece by Piece, matching the SHA1 Hash as given in the .torrent file. 
+	# This is done until the first piece that does not match the SHA1 hash is found.
+	# The piece_id head pointer and the block_offset head pointer is now set to this point
+	# This helps in resuming the file download from the piece where it had been stopped downloading
+	def reCheck(self, file_name):
+		fin = open(file_name, "rb")
+		p_id = 0
+		while(True):
+			b_id = 0
+			b_count = self.getBlockCountFor(p_id)
+			piece_data = ""
+			while(b_id != b_count):
+				data = self.readBlock(p_id, b_id)
+				piece_data += data
+				b_id += 1
+			c_hash = hashlib.sha1(piece_data).digest()
+			if c_hash ==self.piece_hash[p_id]:
+				for x in xrange(b_count):
+					self.updateStatus(p_id, x)
+				self.bytesWritten += b_count*BLOCK_SIZE
+				p_id+=1
+			else :
+				break
+			if self.checkBounds(p_id, 0) == 2:
+				raise "FILE ALREADY DOWNLOADED!"
+				self.StreamCompleted = True
+				break
+		self.uploaded = 0
+		self.updateCurrentHeadPosition()
+
+
+
+
 
 	def initFile(self):
 		file_name = self.file_to_stream['name']
-		fout = open(file_name, "wb")
-		data = BitArray(int(self.file_to_stream_length)*8)
-		data = data.tobytes()
-		fout.write(data)
-		fout.close()
+		# Check if File Already Exists, If yes, then Read it.
+		if os.path.isfile(file_name) == True:
+			# File Exists
+			print "File Already Exists. Checking For Partial Streaming"
+			self.reCheck(file_name)
+		else :
+			fout = open(file_name, "wb")
+			data = BitArray(int(self.file_to_stream_length)*8)
+			data = data.tobytes()
+			fout.write(data)
+			fout.close()
 
 	def initPiecesBlocks(self, info):
 		Logger.debug("Initializing properties")
@@ -173,7 +223,7 @@ class FileManager(object):
 		if self.incrementPieceBlock(piece_id, block_id) == (-1, -1):
 			data = data[:-self.end_byte_offset]
 
-		Logger.info(str("Writing to Disk " + str(piece_id) + "," + str(block_id)))
+		Logger.debug(str("Writing to Disk " + str(piece_id) + "," + str(block_id)))
 		file_name = self.file_to_stream['name']
 		fout = open(file_name, "rb+")
 		seek_offset = self.byteOffset(piece_id, block_id) - self.start_absolute_byte_offset

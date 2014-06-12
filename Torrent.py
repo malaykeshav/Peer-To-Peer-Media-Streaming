@@ -43,19 +43,15 @@ class Torrent(object):
 		self.fileManager 	= FileManager.FileManager(self.info)
 		self.requester 		= RequestManager.RequestManager(self)
 		self.payload 		= self.updatePayload()
-		# Stores a list of all the peers by the Tracker { ({leech, interval, seeds}, [ {IP,Port},{IP,Port}..... ]), -do- }
-		self.peer_by_tracker = dict()
 
 		# The handhshake message to be sent is constant for a given torrent 
 		# str() has been overloaded
 		self.handshake_message = str(Messages.Handshake(self.payload['info_hash'], self.payload['peer_id'])) 
-		# Initialize the Byte And Bit Arrays for status of each piece and Block
-		# self.create_piece_block_arrays(self.info['piece length'],self.getTotalLength()) 
 		print "Total number of pieces :", len(self.info['pieces'])
 
 	def updatePayload(self):
 		peer_id = self.peer_id
-		self.payload['left'] 		= urllib2.quote(str(self.getTotalLength()), '')
+		self.payload['left'] 		= urllib2.quote(str(self.getTotalLength()- self.fileManager.bytesWritten), '')
 		self.payload['peer_id'] 		= urllib2.quote(str(peer_id), '')
 		if self.started == False:
 			self.payload['event'] 		= urllib2.quote("2",'')
@@ -94,6 +90,8 @@ class Torrent(object):
 
 	def start(self):
 		# Connect to tracker and retrieve all the peers
+
+		self.reactor.listenTCP(self.port, self.protocol)
 		self.getPeerList() 
 		self.started = True
 

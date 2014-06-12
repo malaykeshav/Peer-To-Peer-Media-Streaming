@@ -16,12 +16,14 @@ import socket,struct
 import time
 import Core
 import sys
+import threading
+from DisplayManager import DisplayManager
 
 def init_log():
 	Logger.basicConfig(filename='BTP_LOG.log',
 							filemode='a',
 							format='%(asctime)s : %(message)s',
-							level=Logger.DEBUG)
+							level=Logger.INFO)
 	Logger.info("Client Started.\nLog Initialized")
 
 class Client(object):
@@ -80,6 +82,8 @@ init_log()
 # client = Client("http://torcache.net/torrent/B22B8FC4068C723EF8FE59540DC7199A9AA7D738.torrent?title=[kickass.to]queen.2014.hindi.320kbps.vbr.mp3.songs.praky")
 client = Client(sys.argv[1])
 client.torrent.start()
+displayManager = DisplayManager(client.torrent,1)
+displayManager.start()
 reactor.run()
 
 

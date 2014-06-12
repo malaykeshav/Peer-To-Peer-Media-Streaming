@@ -16,7 +16,11 @@ class UDPClientProtocol(DatagramProtocol):
     	# Teporarly Change udp:// to http:// to get hostname and portnumbe
     	url = parsed.geturl()[3:]
     	url = "http" + url
-    	self.host 		= socket.gethostbyname(urlparse(url).hostname)
+    	try:
+    		self.host 		= socket.gethostbyname(urlparse(url).hostname)
+    	except Exception, e:
+    		self.host 		= 'localhost'
+    		self.stopProtocol()
     	self.port 		= urlparse(url).port
     	self.torrent 	= torrent
     	self.isConnected= False
@@ -29,7 +33,10 @@ class UDPClientProtocol(DatagramProtocol):
        self.transport.write(req)
 
     def stopProtocol(self):
-    	Logger.info("Connection To Tracker Lost :" + str(self.host))
+    	try:
+    		Logger.info("Connection To Tracker Lost :" + str(self.host))
+    	except:
+    		pass
 
     def sendTrackerAnnounceRequest(self):
     	req, self.transaction_id = udp_create_announce_request(self.connection_id, self.torrent.updatePayload(), self.port)

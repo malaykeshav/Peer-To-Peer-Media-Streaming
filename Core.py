@@ -41,11 +41,13 @@ class BitTorrenter(protocol.Protocol):
 				self.parseNonHandshakeMessage(data)
 			if(self.canSendRequest()):
 				self.generate_next_request()	#Send Request for next block
+
+			# if(self.torrent.fileManager.bytesWritten != 0):
+				# Logger.debug("File Size Remaining: " + str((self.torrent.fileManager.file_to_stream_length - self.torrent.fileManager.bytesWritten)/1024) + " kilobytes")
+				# Logger.debug("Efficiency: " + str((self.torrent.fileManager.bytesWritten*100)/self.torrent.requester.total_data_received) + "%")
+				# Logger.debug("Speed: " + str(self.torrent.fileManager.bytesWritten/((time.time()-self.torrent.start_time)*1024)) + " kilobytes/second")
+			
 			# Get Next Message in Queue
-			if(self.torrent.fileManager.bytesWritten != 0):
-				Logger.info("File Size Remaining: " + str((self.torrent.fileManager.file_to_stream_length - self.torrent.fileManager.bytesWritten)/1024) + " kilobytes")
-				Logger.info("Efficiency: " + str((self.torrent.fileManager.bytesWritten*100)/self.torrent.requester.total_data_received) + "%")
-				Logger.info("Speed: " + str(self.torrent.fileManager.bytesWritten/((time.time()-self.torrent.start_time)*1024)) + " kilobytes/second")
 			data = self.handleData()
 
 	# Handles the newly received Data. It appends the data to the buffer and returns the next message in Queue. The Returned message should be parsed based on its type
@@ -56,6 +58,7 @@ class BitTorrenter(protocol.Protocol):
 			message += self.buffer[:68]
 			self.buffer = self.buffer[68:]
 			return message
+		# If the message in queue is not a Handshake Message, then the first 4 bytes represent the lenght of the message.
 		message_length = Messages.bytes_to_number(self.buffer[:4]) + 4
 		if(len(self.buffer) >= message_length):
 			message = self.buffer[:message_length]
@@ -70,6 +73,7 @@ class BitTorrenter(protocol.Protocol):
 		handshake_info_hash 	= handshake_response_data.info_hash
 		if handshake_info_hash == urllib.unquote(self.torrent.payload['info_hash']):
 			self.factory.peers_handshaken.add((self.ip, self.port))
+			# Check if Should we be interested or not else choke the peer if not already choked and add a timeout
 			self.transport.write(str(Messages.Interested()))
 			self.buffer += data[68:]
 			self.transport.write(str(Messages.Bitfield(bitfield=self.torrent.fileManager.pieces_status.tobytes())))
@@ -125,7 +129,7 @@ class BitTorrenter(protocol.Protocol):
 		elif isinstance(message_obj, Messages.Have):
 			piece_index = Messages.bytes_to_number(message_obj.index)
 			self.torrent.requester.havePiece(self, piece_index)
-			Logger.info(fmt.format(str(self.ip) , "Has Piece Index :" + str(piece_index)))
+			Logger.debug(fmt.format(str(self.ip) , "Has Piece Index :" + str(piece_index)))
 			ret = self.torrent.fileManager.checkBounds(piece_index,0)
 			if ret != 2:
 				self.interested = True;
@@ -139,7 +143,7 @@ class BitTorrenter(protocol.Protocol):
 			bitarray = BitArray(bytes=message_obj.bitfield)
 			self.peer_has_pieces = bitarray[:len(self.peer_has_pieces)]
 			flag = False
-			for i in range(self.torrent.fileManager.start_piece_id,len(message_obj.bitfield)):
+			for i in range(self.torrent.fileManager.start_piece_id, len(message_obj.bitfield)):
 				ret = self.torrent.fileManager.checkBounds(i,0)
 				if ret != 2:
 					if message_obj.bitfield[i] == True:
@@ -154,31 +158,33 @@ class BitTorrenter(protocol.Protocol):
 		elif isinstance(message_obj, Messages.Request):
 			Logger.info(fmt.format(str(self.ip) , "Request"))
 			if self.peer_choked == False:
-				answer_request(message_obj.index,message_obj.begin,message_obj.length)
+				answer_request(message_obj.index, message_obj.begin, message_obj.length)
 		elif isinstance(message_obj, Messages.Piece):
+			# Unpdate Number of Pending Requests
 			self.pending_requests -= 1
+
+			# Get the (Piece Index, Block Offset) Pair
 			piece_index = Messages.bytes_to_number(message_obj.index)
 			block_byte_offset = Messages.bytes_to_number(message_obj.begin)
 			block_index = block_byte_offset/BLOCK_SIZE
-			Logger.info(fmt.format(str(self.ip) , str(piece_index) + "," + str(block_index) + " :: Recevied Data Piece!!! !:D :D :D"))
+			# Logger.info(fmt.format(str(self.ip) , str(piece_index) + "," + str(block_index) + " :: Recevied Data Piece!!! !:D :D :D"))
+
 			self.torrent.requester.updateTotalDataReceived(len(message_obj.block))
+
 			if((piece_index,block_index) in self.set_of_blocks_requested):
 				self.set_of_blocks_requested.remove((piece_index,block_index))
 			self.set_of_blocks_received.add((piece_index,block_index))
-			#Change the following line as per the function name used in FileManager.
 
 			message_obj.index = Messages.bytes_to_number(message_obj.index)
 			message_obj.begin = Messages.bytes_to_number(message_obj.begin)
 
 			self.writeData(message_obj.index, message_obj.begin, message_obj.block)
 
-			Logger.info("Received || Total Current Requests :" + str(self.torrent.requester.total_requests))
-			Logger.info("Received || Wasted Requests:" + str(self.torrent.requester.total_requests_wasted))
-			Logger.info("Received || Cancelled Requests:" + str(self.torrent.requester.total_requests_cancelled))
-			Logger.info("Received || Requests Used:" + str(self.torrent.requester.total_requests_used))
-			Logger.info("Received || Total Requests Sent:" + str(self.torrent.requester.total_requests_sent))
-
-			# assert self.torrent.requester.total_requests_sent == self.torrent.requester.total_requests_wasted + self.torrent.requester.total_requests_cancelled + self.torrent.requester.total_requests_used, "Chutiyapa in count of requests wasted and Cancelled"
+			# Logger.info("Received || Total Current Requests :" + str(self.torrent.requester.total_requests))
+			# Logger.info("Received || Wasted Requests:" + str(self.torrent.requester.total_requests_wasted))
+			# Logger.info("Received || Cancelled Requests:" + str(self.torrent.requester.total_requests_cancelled))
+			# Logger.info("Received || Requests Used:" + str(self.torrent.requester.total_requests_used))
+			# Logger.info("Received || Total Requests Sent:" + str(self.torrent.requester.total_requests_sent))
 
 		elif isinstance(message_obj, Messages.Cancel):
 			Logger.info(fmt.format(str(self.ip) , "Cancelled Request :\\"))
@@ -188,9 +194,11 @@ class BitTorrenter(protocol.Protocol):
 	def generate_next_request(self):
 		while True:
 			#Ask the Requests Manager for new Blocks to request
-			piece_index,block_index = self.torrent.requester.get_next_block(self)
+			piece_index, block_index = self.torrent.requester.getNextBlock(self)
+
 			if block_index < 0 or len(self.set_of_blocks_requested) >= MAX_REQUEST_TO_PEER:
 				if self.torrent.fileManager.StreamCompleted == True:
+					# Launch Finishing Sequences
 					reactor.stop()
 				else:
 					break
@@ -202,13 +210,14 @@ class BitTorrenter(protocol.Protocol):
 				index = Messages.number_to_bytes(piece_index), 
 				begin = Messages.number_to_bytes(block_byte_offset), 
 				length = Messages.number_to_bytes(BLOCK_SIZE))))
-			self.torrent.requester.requestSuccessful(self, piece_index,block_index)
+			
+			self.torrent.requester.requestSuccessful(self, piece_index, block_index)
 			#Add timeout for requests.
-			Logger.info("Sending Request For Piece :" + str(Messages.number_to_bytes(piece_index)) + " to " + str(self.ip))
+			Logger.info("Sending Request For Piece :" + str(piece_index) + ", " + str(block_index) + " to " + str(self.ip))
 			reactor.callLater(TIMEOUT,self.checkTimeout,piece_index,block_index)
 
 	def checkTimeout(self, piece_index, block_index):
-		#Called after the expected time of receiving a (piece,block).Checks the set of pending requests to determine if retransmission is needed or not.
+		# Called after the expected time of receiving a (piece,block).Checks the set of pending requests to determine if retransmission is needed or not.
 		if (piece_index,block_index) in self.set_of_blocks_requested:
 			self.torrent.requester.removeRequest(self,piece_index, block_index)
 
